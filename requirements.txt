@@ -1,0 +1,4 @@
+gradio>=5.49,<7
+torch>=2.8
+torchaudio>=2.8
+git+https://github.com/OpenMOSS/MOSS-Transcribe-Diarize.git
