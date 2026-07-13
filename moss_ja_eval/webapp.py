@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .infer import JAPANESE_PROMPT, _load_runtime
+from .local_llm import DEFAULT_OLLAMA_MODEL, correct_transcript
 
 MODEL_ID = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
 
@@ -23,12 +24,22 @@ def format_timestamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}.{milliseconds:03d}"
 
 
-def format_transcript(segments: Iterable[Any]) -> str:
+def format_transcript(
+    segments: Iterable[Any], corrected_texts: Iterable[str] | None = None
+) -> str:
     """Render parsed MOSS segments in the app's downloadable text format."""
+    segment_list = list(segments)
+    texts = (
+        [str(segment.text) for segment in segment_list]
+        if corrected_texts is None
+        else list(corrected_texts)
+    )
+    if len(texts) != len(segment_list):
+        raise ValueError("訂正結果の発話数が文字起こし結果と一致しません。")
     lines: list[str] = []
-    for segment in segments:
+    for segment, corrected_text in zip(segment_list, texts):
         speaker = str(segment.speaker).strip().strip("[]") or "不明"
-        text = str(segment.text).strip()
+        text = str(corrected_text).strip()
         if text:
             lines.append(f"[{format_timestamp(float(segment.start))}] {speaker}: {text}")
     return "\n".join(lines)
@@ -46,7 +57,14 @@ def _get_runtime() -> tuple[Any, Any, Any, Any]:
     return _runtime
 
 
-def transcribe(audio_path: str | None, max_new_tokens: int) -> tuple[str, str]:
+def transcribe(
+    audio_path: str | None,
+    max_new_tokens: int,
+    use_local_llm: bool = False,
+    llm_model: str = DEFAULT_OLLAMA_MODEL,
+    llm_base_url: str = "http://127.0.0.1:11434",
+    correction_context: str = "",
+) -> tuple[str, str]:
     """Transcribe one uploaded file and return display text plus a .txt path."""
     if not audio_path:
         raise ValueError("音声ファイルを選択してください。")
@@ -72,7 +90,16 @@ def transcribe(audio_path: str | None, max_new_tokens: int) -> tuple[str, str]:
             dtype=dtype,
         )
 
-    output = format_transcript(parse_transcript(result["text"]))
+    segments = list(parse_transcript(result["text"]))
+    corrected_texts = None
+    if use_local_llm:
+        corrected_texts = correct_transcript(
+            [str(segment.text) for segment in segments],
+            model=llm_model,
+            base_url=llm_base_url,
+            context=correction_context,
+        )
+    output = format_transcript(segments, corrected_texts)
     if not output:
         raise RuntimeError(
             "発話区間を取得できませんでした。音声を確認するか、最大出力トークン数を増やしてください。"
@@ -87,9 +114,23 @@ def transcribe(audio_path: str | None, max_new_tokens: int) -> tuple[str, str]:
 def build_demo():
     import gradio as gr
 
-    def run(audio_path: str | None, max_new_tokens: int):
+    def run(
+        audio_path: str | None,
+        max_new_tokens: int,
+        use_local_llm: bool,
+        llm_model: str,
+        llm_base_url: str,
+        correction_context: str,
+    ):
         try:
-            return transcribe(audio_path, max_new_tokens)
+            return transcribe(
+                audio_path,
+                max_new_tokens,
+                use_local_llm,
+                llm_model,
+                llm_base_url,
+                correction_context,
+            )
         except (ValueError, RuntimeError) as exc:
             raise gr.Error(str(exc)) from exc
         except Exception as exc:
@@ -116,6 +157,25 @@ def build_demo():
                         label="最大出力トークン数",
                         info="長い音声で結果が途中までの場合は増やしてください。",
                     )
+                    use_local_llm = gr.Checkbox(
+                        value=False,
+                        label="Local LLMで音声認識誤りを訂正",
+                        info="Ollamaを使い、話者・時刻を変えずに本文だけを校正します。",
+                    )
+                    llm_model = gr.Textbox(
+                        value=os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
+                        label="Ollamaモデル",
+                        placeholder=DEFAULT_OLLAMA_MODEL,
+                    )
+                    llm_base_url = gr.Textbox(
+                        value=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+                        label="Ollama URL",
+                    )
+                    correction_context = gr.Textbox(
+                        label="訂正用の用語・文脈（任意）",
+                        placeholder="例: 製品名はOpenMOSS、会議テーマは音声認識",
+                        lines=3,
+                    )
                 submit = gr.Button("文字起こしを開始", variant="primary")
             with gr.Column(scale=2):
                 transcript = gr.Textbox(
@@ -127,7 +187,14 @@ def build_demo():
 
         submit.click(
             fn=run,
-            inputs=[audio, max_tokens],
+            inputs=[
+                audio,
+                max_tokens,
+                use_local_llm,
+                llm_model,
+                llm_base_url,
+                correction_context,
+            ],
             outputs=[transcript, download],
             concurrency_limit=1,
         )

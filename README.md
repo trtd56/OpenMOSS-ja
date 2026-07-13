@@ -36,6 +36,19 @@ uv run python app.py
 
 ブラウザで `http://127.0.0.1:7860` を開きます。デバイスは CUDA、Apple Silicon の MPS、CPU の順で自動選択されます。明示する場合は起動前に `MOSS_DEVICE=cuda:0`、`MOSS_DEVICE=mps`、または `MOSS_DEVICE=cpu` を設定してください。
 
+### Local LLMで認識誤りを訂正する
+
+[Ollama](https://ollama.com/) を起動して日本語対応モデルを用意すると、文字起こし後に同音異義語、漢字、助詞、句読点などを校正できます。話者ラベルとタイムスタンプは変更しません。
+
+```bash
+ollama list
+ollama serve
+```
+
+アプリの「詳細設定」で「Local LLMで音声認識誤りを訂正」を有効にします。既定値は導入済みのQwen 3.6系モデル `qwen3.6:27b-mtp-q4_K_M` と `http://127.0.0.1:11434` です。別のモデルやURLは画面上で変更するか、`OLLAMA_MODEL`、`OLLAMA_BASE_URL` 環境変数で設定できます。「訂正用の用語・文脈」には製品名、人名、専門用語などを入力できます。
+
+Ollamaへの接続失敗、応答形式の不正、発話の欠落があった場合は、誤った訂正を採用せずエラーを表示します。Hugging Face Spacesから手元の `127.0.0.1` には接続できないため、この機能は原則としてローカル実行向けです。
+
 ## Hugging Face Spacesへ配置する
 
 1. Hugging Faceで Gradio SDK の新しい Space を作成します。

@@ -18,3 +18,11 @@ def test_format_transcript_uses_start_time_and_speaker() -> None:
         "[00:00:00.480] S01: こんにちは。\n"
         "[00:00:12.260] S02: よろしくお願いします。"
     )
+
+
+def test_format_transcript_uses_corrections_without_changing_metadata() -> None:
+    segments = [Segment(0.48, 1.66, "[S01]", "今日わ晴れです。")]
+
+    assert format_transcript(segments, ["今日は晴れです。"]) == (
+        "[00:00:00.480] S01: 今日は晴れです。"
+    )
